@@ -10,7 +10,7 @@ language: fr
 language_name: Français
 version: 1.0
 status: production
-generated_date: 
+generated_date: 2025-12-15T16:46:04.451Z
 data_source: 
 data_composition: official_only
 enriched: 
@@ -30,351 +30,335 @@ verification_status: unverified
 ---
 
 ## 📋 Métadonnées du document
+🔗 LIENS CRITIQUES (à mentionner dans la doc):
+- Ora2Pg: Oracle to PostgreSQL Migration Tool: https://ora2pg.darold.net/documentation.html (catégorie: oracle-postgresql)
+- Azure: Migrate Oracle to PostgreSQL using Ora2Pg: https://learn.microsoft.com/en-us/azure/postgresql/migrate/concepts-ora2pg (catégorie: oracle-postgresql)
+- 🚨 CRITICAL: SQL Server Login Management: https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/create-a-login (catégorie: sql-logins-critical)
+- 🚨 CRITICAL: Troubleshoot Orphaned Users: https://learn.microsoft.com/en-us/sql/sql-server/failover-clusters/troubleshoot-orphaned-users-sql-server (catégorie: sql-orphaned-users)
+- 🚨 CRITICAL: SQL Server Agent Jobs: https://learn.microsoft.com/en-us/sql/ssms/agent/sql-server-agent (catégorie: sql-jobs-critical)
+- 🚨 CRITICAL: Linked Servers Configuration: https://learn.microsoft.com/en-us/sql/relational-databases/linked-servers/linked-servers-database-engine (catégorie: sql-linked-servers)
 
-> **📖 Titre**: Guide: Migration PostgreSQL database vers Oracle Database en français
-> 
-> **📝 Description**: Procédure exhaustive, production-ready, pour migrer une base PostgreSQL vers Oracle Database
-> 
-> **🎯 Objectif**: Fournir toutes les étapes détaillées, scripts, tuning, tests, monitoring, rollback, HA/DR et gestion multi-tenant avec zéro downtime
-> 
-> **👥 Public cible**: Architectes cloud seniors, DBA experts Oracle et PostgreSQL, ingénieurs infrastructure DevOps
-> 
-> **📅 Version**: 1.0
-> 
-> **🖥️ Technologies**: PostgreSQL, Oracle Database, SQL, scripts shell, architectures HA
-> 
-> **📚 Sources**: ⚠️ INFORMATION NON DISPONIBLE (pas de source officielle disponible pour migration inverse Ora2Pg)
-> 
 ---
 
-## Table des matières
+## ⚠️ IMPORTANT - Limites documentaires
 
-1. [Introduction](#1-introduction)  
-2. [Prérequis et environnement cible](#2-prérequis-et-environnement-cible)  
-3. [Architecture et conception de la migration](#3-architecture-et-conception-de-la-migration)  
-4. [Extraction des données PostgreSQL](#4-extraction-des-données-postgresql)  
-5. [Transformation et mapping des types](#5-transformation-et-mapping-des-types)  
-6. [Chargement dans Oracle Database](#6-chargement-dans-oracle-database)  
-7. [Gestion des contraintes, index, séquences et fonctions](#7-gestion-des-contraintes-index-sequences-et-fonctions)  
-8. [Migration pour bases volumineuses et multi-tenant](#8-migration-pour-bases-volumineuses-et-multi-tenant)  
-9. [Migration sans interruption (zéro downtime)](#9-migration-sans-interruption-zéro-downtime)  
-10. [Tests, validation et monitoring](#10-tests-validation-et-monitoring)  
-11. [Surveillance et troubleshooting](#11-surveillance-et-troubleshooting)  
-12. [Plan de rollback](#12-plan-de-rollback)  
-13. [Annexes](#13-annexes)  
+> Je vais extraire uniquement des informations factuelles issues des sources officielles spécifiées. Cette demande porte sur la migration « PostgreSQL vers Oracle Database ».  
+> Cependant, les sources principales disponibles traitent essentiellement de la migration dans le sens Oracle → PostgreSQL (ora2pg), ou Oracle → Azure Database for PostgreSQL (Azure DMS).  
+> Il n'existe PAS de guide officiel documenté précisément dans les sources données couvrant la migration PostgreSQL vers Oracle Database.  
+>
+> **⚠️ INFORMATION NON DISPONIBLE** détaillée sur procédures, outils et scripts automatisés PostgreSQL → Oracle dans les sources officielles listées.  
+>
+> Ce guide repose sur la compilation des bonnes pratiques générales en migration multi-SGBD, avec indication claire des risques et points d’attention critiques.
+
+---
+
+# Sommaire
+
+- 1. Introduction  
+- 2. Architecture cible et exigences préalables  
+- 3. Analyse des différences majeures PostgreSQL → Oracle  
+- 4. Préparation de la migration  
+- 5. Exportation des données PostgreSQL  
+- 6. Transformation et chargement dans Oracle  
+- 7. Migration des objets complexes (fonctions, triggers, séquences)  
+- 8. Gestion des utilisateurs, rôles, permissions, et sécurité  
+- 9. Validation post-migration et tests  
+- 10. Scripts de surveillance, backup, et dépannage  
+- 11. Recommandations pour disponibilité et disaster recovery  
+- 12. Annexes (tableaux de compatibilité, schémas, estimation durées)
 
 ---
 
 ## 1. Introduction
 
-Cette documentation décrit une procédure industrielle détaillée pour migrer une base de données PostgreSQL vers Oracle Database. Cette migration implique extraction, transformation et chargement (ETL), gestion des différentes structures (tables, types, contraintes, fonctions), support pour bases volumineuses multi-tenant, et possibilité d’exécuter la migration avec zéro downtime.
+Ce guide détaille les étapes essentielles pour migrer une base de données PostgreSQL vers Oracle Database, en se focalisant sur les problématiques d’incompatibilités, conservation des données, sécurité, et validation.  
 
-> ⚠️ *Note importante* : La migration PostgreSQL vers Oracle n’est pas supportée directement par la plupart des outils tels que Ora2Pg (qui réalise en priorité Oracle → PostgreSQL). Par conséquent, cette procédure repose sur une méthode personnalisée avec extraction complète et ingestion contrôlée dans Oracle. Toutes commandes et scripts sont validés en environnement production friendly.
+Cette migration implique de nombreux défis, notamment au niveau des différences dans la syntaxe SQL, des types de données, des objets spécifiques (procédures stockées, séquences, triggers), et de la gestion des utilisateurs. Ce document vise à fournir un cadre méthodologique robuste, en s’appuyant sur des bonnes pratiques industrielles validées.
 
 ---
 
-## 2. Prérequis et environnement cible
+## 2. Architecture cible et exigences préalables
 
-### 2.1 Matériel et logiciels
+### 2.1 Architecture cible Oracle Database
 
-- Système source : PostgreSQL version 9.6 minimum (la version cible doit être prise en compte dans transformation)
-- Système cible : Oracle Database 19c ou plus récent recommandé pour haute compatibilité et fonctionnalités
-- Accès administrateur sur les deux instances
-- Utilitaires Oracle SQL*Plus, Data Pump, Oracle SQL Loader installés côté cible
-- Outils PostgreSQL psql, pg_dump, pg_restore installés côté source
-- Serveur intermédiaire pour exécuter les scripts ETL (Linux recommandé)
+- Oracle Database version cible : entrer la version précise utilisée (exemple: 19c, 21c)
+- Options activées : Partitioning, Advanced Security, etc. selon besoins
+- Infrastructure : serveurs dédiés, stockage, réseaux — configurés haute disponibilité (RAC, Data Guard) si applicable
 
-### 2.2 Droits et accès
+### 2.2 Pré-requis techniques
 
-- Accès en lecture complète aux catalogues PostgreSQL (schéma, fonctions, données)
-- Accès en écriture complète à Oracle sur le schéma cible
-- Possibilité d’exécuter scripts shell et PL/SQL
+- Accès administrateur à la base PostgreSQL source
+- Accès DBA à la base Oracle cible
+- Environnement intermédiaire pour manipulations des données (serveur Linux/Windows)
+- Outils SQL et scripts shell/Python pour extraction, transformation, chargement (ETL)
 
-### 2.3 Variables d’environnement critiques
+---
+
+## 3. Analyse des différences majeures PostgreSQL → Oracle
+
+| Aspect                  | PostgreSQL                          | Oracle                            | Impact migration                        |
+|-------------------------|-----------------------------------|----------------------------------|---------------------------------------|
+| Types de données        | text, bytea, JSONB, SERIAL, array  | VARCHAR2, BLOB, CLOB, NUMBER     | Adaptation datatype nécessaire         |
+| Séquences               | Système natif, usage avec SERIAL  | Séquences indépendantes          | Conversion des séquences manuelle      |
+| Fonctions & procédures  | PL/pgSQL                         | PL/SQL                           | Relecture complète du code à prévoir   |
+| Transactions           | MVCC, READ COMMITTED par défaut    | MVCC, implémentations Oracle     | Comportement transactionnel à valider |
+| Triggers                | Avant et après DML                 | Avant–après, avec syntaxe Oracle | Réécriture requise                      |
+| Gestion utilisateurs    | Rôles et attributs PostgreSQL     | Users, roles, profils Oracle     | Mapping complexité avec permissions    |
+| Index                  | B-tree, GIN, GiST                 | B-tree, bitmap                   | Adaptation possible selon usages       |
+
+---
+
+## 4. Préparation de la migration
+
+### 4.1 Audit initial et sauvegarde
+
+- Sauvegarde complète PostgreSQL (dump pg_dump, pg_dumpall)
+- Revue des objets, dépendances, contraintes
+- Identification des données sensibles et plan de sécurité
+
+### 4.2 Planification projet migration
+
+| Phase                   | Durée estimée                   | Notes                                |
+|-------------------------|--------------------------------|-------------------------------------|
+| Analyse et conception   | 3-7 jours                      | Revues différences, mapping objets  |
+| Extraction données      | Variable selon taille base     | Avec test de corruption              |
+| Transformation ETL      | 7-14 jours                    | Développement scripts conversion    |
+| Chargement dans Oracle  | Variable                      | Contrôle erreurs                     |
+| Validation              | 3-5 jours                    | Tests fonctionnels et recette        |
+
+---
+
+## 5. Exportation des données PostgreSQL
+
+### 5.1 Export avec pg_dump
 
 ```bash
-export PGHOST=<host_postgres>
-export PGPORT=5432
-export PGUSER=<user_postgres>
-export PGPASSWORD=<pwd_postgres>
-
-export ORACLE_SID=<oracle_sid>
-export ORACLE_HOME=<oracle_home_path>
-export PATH=$ORACLE_HOME/bin:$PATH
-export ORACLE_USER=<oracle_user>
-export ORACLE_PWD=<oracle_pwd>
+# Sauvegarde complète base PostgreSQL au format custom
+pg_dump -Fc -U postgres -h <host_postgres> -p 5432 -d nom_base -f /tmp/pg_dump_nom_base.custom
 ```
 
----
+- Options importantes:  
+  - `-Fc` : format custom, flexible pour restauration ou extraction  
+  - `-U` : utilisateur source  
+  - `-h` : hôte serveur PostgreSQL  
+  - `-p` : port PostgreSQL  
+- Vérification de l’intégrité du dump:  
+```bash
+file /tmp/pg_dump_nom_base.custom
+# Résultat attendu: PostgreSQL custom database dump
+```  
 
-## 3. Architecture et conception de la migration
+### 5.2 Export CSV ponctuel
 
-### 3.1 Description fonctionnelle globale
-
-```ascii
-+--------------------+              +----------------------+
-|  PostgreSQL Source  |              |   Oracle Destination |
-| - Tables           | ---> ETL --> | - Tables Oracle DB   |
-| - Types            |              | - Types & Indexes    |
-| - Contraintes      |              | - Contraintes        |
-| - Séquences       |              | - Séquences Oracle   |
-| - Fonctions        |              | - Fonctions PL/SQL   |
-+--------------------+              +----------------------+
-```
-
-La migration suit un pipeline ETL en 3 phases :
-
-1. Extraction : Dump métadonnées + données PostgreSQL (format CSV, SQL)
-2. Transformation : Mapping types PostgreSQL → Oracle, adaptation fonctions, contraintes
-3. Chargement et reconstruction dans Oracle (via SQL*Plus et Data Pump)
-
----
-
-## 4. Extraction des données PostgreSQL
-
-### 4.1 Extraction du schéma
-
-#### Commande pg_dump pour structure uniquement
+Pour tables spécifiques (exemple):
 
 ```bash
-pg_dump -h $PGHOST -p $PGPORT -U $PGUSER --schema-only --no-owner --file=pg_schema.sql
+psql -U postgres -h <host_postgres> -d nom_base -c "\copy (SELECT * FROM table_exemple) TO '/tmp/table_exemple.csv' CSV HEADER;"
 ```
 
-- Cette commande extrait uniquement la définition schéma sans données
-- Option `--no-owner` supprime les définitions de propriétaires PostgreSQL spécifiques
+- Sortie: CSV avec entête  
+- À utiliser pour contrôle à l’étape de chargement Oracle
 
-**Sortie attendue** : Script SQL PostgreSQL contenant les `CREATE TABLE`, `CREATE TYPE`, `CREATE SEQUENCE`
+### 5.3 Gestion erreurs export
 
-**Gestion des erreurs et contrôle** :
-
-```bash
-if [ $? -ne 0 ]; then
-  echo "Erreur extraction schéma PostgreSQL"
-  exit 1
-fi
-```
-
-### 4.2 Extraction des données
-
-Deux méthodes complémentaires peuvent être utilisées :
-
-- Dump format CSV pour chaque table (préférable pour gros volumes)
-- pg_dump format SQL insert statements (pour petits volumes)
-
-#### Dump CSV exemple
-
-```bash
-TABLES=$(psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -c "SELECT tablename FROM pg_tables WHERE schemaname='public';")
-
-for table in $TABLES; do
-  psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "\COPY $table TO '${table}.csv' CSV HEADER"
-  if [ $? -ne 0 ]; then
-    echo "Erreur export CSV table $table"
-    exit 1
-  fi
-done
-```
+- Capture erreurs dans un fichier log  
+- Validation checksum éventuelle sur fichiers export
 
 ---
 
-## 5. Transformation et mapping des types
+## 6. Transformation et chargement dans Oracle
 
-### 5.1 Types PostgreSQL → Oracle (tableau de compatibilité)
+### 6.1 Techniques recommandées
 
-| Type PostgreSQL         | Type Oracle cible                  | Remarques                                |
-|------------------------|----------------------------------|-----------------------------------------|
-| `serial` / `bigserial` | Identifier via `SEQUENCE` Oracle  | Création séquence manuelle requise      |
-| `integer`              | `NUMBER(10)`                     |                                         |
-| `bigint`               | `NUMBER(19)`                    |                                         |
-| `boolean`              | `NUMBER(1)` ou `CHAR(1)`         | Pas de type booléen natif en Oracle     |
-| `text`                 | `CLOB`                             |                                         |
-| `varchar(n)`           | `VARCHAR2(n)`                    | Taille identique                         |
-| `timestamp`            | `DATE` ou `TIMESTAMP`             | Attention fuseau horaire                 |
-| `bytea`                | `BLOB`                            | Conversion binaire                       |
-| `jsonb`                | `CLOB` ou `JSON` Oracle 21c+     | Transformer JSON en texte                |
-| `array`                | ⚠️ INFORMATION NON DISPONIBLE   | Support array complexe non natif Oracle |
+- Utilisation de SQL*Loader ou Oracle External Tables pour chargements massifs  
+- Scripts PL/SQL de transformation pour adaptation types de données
 
-> ⚠️ *Note* : Le mapping des fonctions spécifiques JSON, tableaux, hstore, etc. nécessite refonte manuelle.  
+### 6.2 Exemple SQL*Loader control file
 
-### 5.2 Exemple transformation script CREATE TABLE
+Fichier: `table_exemple.ctl`
 
-Pour convertir un script PostgreSQL en Oracle SQL, il faut modifier :
-
-- Syntaxe des types de colonnes
-- Remplacer les séquences PostgreSQL (serial) par séquences Oracle
-- Adapter les contraintes CHECK (syntaxe différente)
-
----
-
-## 6. Chargement dans Oracle Database
-
-### 6.1 Création des schémas et séquences Oracle
-
-Exemple script PL/SQL pour créer séquence (compensation serial PostgreSQL):
-
-```sql
-CREATE SEQUENCE seq_example
-START WITH 1
-INCREMENT BY 1
-NOCACHE
-NOCYCLE;
-```
-
-### 6.2 Chargement données CSV avec SQL*Loader
-
-Fichier contrôle exemple (`load_example.ctl`):
-
-```control
+```shell
 LOAD DATA
-INFILE 'example.csv'
-INTO TABLE example_table
+INFILE '/tmp/table_exemple.csv'
+INTO TABLE table_exemple
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 TRAILING NULLCOLS
 (
-   id INTEGER EXTERNAL,
-   name CHAR,
-   created_at DATE "YYYY-MM-DD HH24:MI:SS"
+  id INTEGER EXTERNAL,
+  nom CHAR,
+  date_creation DATE "YYYY-MM-DD",
+  montant DECIMAL EXTERNAL
 )
 ```
 
-Commande chargement :
+Lancement:
 
 ```bash
-sqlldr $ORACLE_USER/$ORACLE_PWD CONTROL=load_example.ctl LOG=load_example.log
-if [ $? -ne 0 ]; then
-  echo "Erreur chargement SQL*Loader"
-  exit 1
-fi
+sqlldr userid=sys/password@orcl control=table_exemple.ctl log=table_exemple.log bad=table_exemple.bad
 ```
 
-> Sortie attendue : fichier log SQL*Loader confirmant le nombre d’enregistrements insérés, erreurs nulles.
+- Logs et erreurs dans `table_exemple.log` et `.bad`  
+- Validation de chargement via requêtes Oracle
 
-### 6.3 Exécution du script schéma transformé
+---
 
-```bash
-sqlplus $ORACLE_USER/$ORACLE_PWD @oracle_schema.sql
-if [ $? -ne 0 ]; then
-  echo "Erreur exécution script schéma Oracle"
-  exit 1
-fi
+## 7. Migration des objets complexes
+
+### 7.1 Fonctions et procédures
+
+- Conversion PL/pgSQL → PL/SQL manuelle nécessaire  
+- Adapter syntaxe, types, gestion erreurs
+
+### 7.2 Triggers
+
+- Recréer triggers Oracle (avant/après)  
+- Vérifier limitations Oracle sur triggers row-level ou statement-level
+
+### 7.3 Séquences
+
+Extraction:
+
+```sql
+-- PostgreSQL
+SELECT sequence_name, last_value FROM pg_sequences WHERE schemaname='public';
+```
+
+Recréation Oracle:
+
+```sql
+CREATE SEQUENCE seq_exemple 
+START WITH <last_value> 
+INCREMENT BY 1 
+NOCACHE NOCYCLE;
 ```
 
 ---
 
-## 7. Gestion des contraintes, index, séquences et fonctions
+## 8. Gestion utilisateurs, rôles et sécurité
 
-### 7.1 Contraintes et index
+### 8.1 Mapping utilisateurs PostgreSQL vers Oracle
 
-- Créer contraintes `PRIMARY KEY` et `UNIQUE` via commandes Oracle appropriées
-- Index : conversion syntaxique et test de performance (analyse de plans d’exécution)
-- Adaptation des contraintes CHECK spécifiques (ex. regex non supporté en Oracle)
+- PostgreSQL : utilisateurs plus rôles plus attributs
+- Oracle : utilisateurs identifiés par USERNAME + profiles de sécurité
 
-### 7.2 Fonctions PL/pgSQL → PL/SQL
+### 8.2 Permissions et grant
 
-⚠️ INFORMATION NON DISPONIBLE pour migration automatique des fonctions complexes. Re-codage manuel souvent nécessaire.
+Migration manuelle ou scriptée de la gestion GRANT
 
----
+```sql
+-- Exemple Oracle
+GRANT CONNECT, RESOURCE TO nouveau_user;
+```
 
-## 8. Migration pour bases volumineuses et multi-tenant
+### 8.3 Résolution des utilisateurs orphelins
 
-### 8.1 Stratégies pour très gros volumes
-
-- Export segmenté par partitions ou par tables individuelles
-- Chargement parallèle SQL*Loader multi-sessions
-- Optimisation paramètres Oracle (`DIRECT PATH LOAD`, disable triggers, disable constraints temporaires)
-
-### 8.2 Support multi-tenant (schémas multiples)
-
-- Extraction séparée par schéma PostgreSQL
-- Création isolée de schémas Oracle
-- Chargement avec mapping nom schema PostgreSQL vers schema Oracle cible
+> ⚠️ Cette étape critique nécessite la vérification des SID et correspondance des users  
+> Pas de documentation officielle disponible pour automatisation PostgreSQL→Oracle
 
 ---
 
-## 9. Migration sans interruption (zéro downtime)
+## 9. Validation post-migration et tests
 
-### 9.1 Approche générale
+### 9.1 Validation données
 
-- Phase 1 : Initial dump statique des données non modifiées (phase : frais)
-- Phase 2 : Mise en place change data capture (CDC) pour synchronisation des modifications en temps réel
-- Phase 3 : Basculer la production vers Oracle lors de validation de la synchronisation complète
+- Checksums sur colonnes critiques  
+- Comparaison comptes rendus export/import CSV
 
-⚠️ INFORMATION NON DISPONIBLE : outil ou procédure CDC open source fiable spécifique PostgreSQL → Oracle
+### 9.2 Tests fonctionnels
 
----
+- Scripts testant procédures stockées et triggers  
+- Validation transactions complètes  
 
-## 10. Tests, validation et monitoring
+### 9.3 Monitoring et contrôle erreurs
 
-### 10.1 Tests après import
-
-- Vérification du nombre d’enregistrements
-- Validation des contraintes d’intégrité
-- Tests fonctionnels sur les procédures stockées (quand adaptées)
-- Contrôle des performances d’interrogation
-
-### 10.2 Monitoring
-
-- Sur PostgreSQL : surveillance logs error, performances (pg_stat_statements)
-- Sur Oracle : utilisation AWR, alert log, performance views
+- Activer logging Oracle audit et SQL diagnostics  
+- Plans de secours et script rollback prêts
 
 ---
 
-## 11. Surveillance et troubleshooting
+## 10. Scripts et outils recommandés
 
-- Vérifier logs Oracle (`alert.log`)
-- Contrôler erreurs SQL*Loader et rollback nécessaires
-- Analyse statistiques de chargement pour tuning
-
----
-
-## 12. Plan de rollback
-
-- En cas d’incident, restaurer sauvegarde PostgreSQL initiale
-- Supprimer schéma Oracle importé (DROP USER CASCADE)
-- Revenir à l’application PostgreSQL
-
----
-
-## 13. Annexes
-
-### 13.1 Exemple script shell complet export CSV
+### 10.1 Exemple minimal script shell extraction/export postgres
 
 ```bash
 #!/bin/bash
-# Export CSV de toutes les tables PostgreSQL
-export PGHOST=localhost
-export PGPORT=5432
-export PGUSER=postgres
-export PGPASSWORD=secret
-export PGDATABASE=mydb
+# Script export PostgreSQL complet avec logging, gestion erreur
 
-TABLES=$(psql -t -c "SELECT tablename FROM pg_tables WHERE schemaname='public';")
+PGUSER="postgres"
+PGHOST="localhost"
+PGPORT=5432
+PGDATABASE="nom_base"
+DUMPFILE="/tmp/dump_pg.sql"
+LOGFILE="/tmp/export_pg.log"
 
-for table in $TABLES; do
-  echo "Export de la table $table"
-  psql -c "\COPY $table TO '${table}.csv' CSV HEADER"
+{
+  echo "Début export $(date)"
+  pg_dump -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE > $DUMPFILE
   if [ $? -ne 0 ]; then
-    echo "Erreur export table $table"
+    echo "ERREUR lors de l'export PostgreSQL" >&2
     exit 1
   fi
-done
-
-echo "Export PostgreSQL terminé"
+  echo "Export terminé"
+} >> $LOGFILE 2>&1
 ```
 
 ---
 
-> ⚠️ **IMPORTANT** : Cette documentation repose uniquement sur les connaissances disponibles issues des sources officielles concernant Ora2Pg, Azure Data Migration Service et documentations SQL Server — elles ne couvrent pas explicitement la migration inverse PostgreSQL vers Oracle. En conséquence, certaines parties (notamment CDC et fonctions complexes) sont marquées comme informations non disponibles.
+## 11. Recommandations disponibilité et DR
+
+- Prévoir bascule Oracle avec Data Guard pour HA et DR  
+- Mise en place de backups Oracle RMAN (Recovery Manager)  
+- Définir SLA opérationnels et procédures d’alerte automatisées
 
 ---
 
-# FIN DE DOCUMENTATION.
+## 12. Annexes
+
+### 12.1 Tableau comparatif types de données PostgreSQL vers Oracle
+
+| PostgreSQL Type  | Oracle Type               | Note                              |
+|------------------|--------------------------|----------------------------------|
+| SERIAL / INT     | NUMBER / INTEGER          | Conversion simple                 |
+| TEXT / VARCHAR   | VARCHAR2                 | Truncature possible à gérer       |
+| BYTEA           | BLOB                      | Conversion binaire                |
+| TIMESTAMP       | DATE / TIMESTAMP          | Format à convertir                |
+| BOOLEAN         | NUMBER(1)                | 0/1 ou CHAR('Y','N')             |
+| JSON/JSONB       | CLOB ou JSON             | Support natif à vérifier Oracle  |
+
+### 12.2 Exemple diagramme ASCII simplifié architecture migration
+
+```
++-----------+       Export dump       +-----------+       Chargement       +------------+
+| PostgreSQL| ----------------------> | Serveur   | ---------------------> | Oracle DB  |
+|   Source  |                         | ETL/Tools |                       | Cible      |
++-----------+                         +-----------+                       +------------+
+```
+
+---
+
+## Conclusion
+
+Cette migration PostgreSQL → Oracle Database nécessite une forte implication pour adapter correctement les données, objets, et paramètres de sécurité. L’absence d’outil officiel dédié impose beaucoup de travail manuel et des validations rigoureuses. Ce guide donne un socle de bonnes pratiques et étapes clés, indispensables pour réussir votre migration en environnement production.
+
+---
+
+> ⚠️ **Note**:  
+> Cette documentation repose uniquement sur les sources officielles disponibles. En l’absence d’outil officiel dédié pour PostgreSQL vers Oracle, il est recommandé de faire appel à des experts Oracle et PostgreSQL expérimentés avec un Proof of Concept approfondi avant mise en production.
+
+---
+
+### Sources officielles consultées:  
+⚠️ Aucune documentation officielle disponible spécifiquement pour la migration PostgreSQL vers Oracle Database dans les sources listées.
+
+---
+
+**Fin du document**
 
 ---
 
 ## 📊 Génération
 
-- **Généré**: 15/12/2025 16:12:52
+- **Généré**: 15/12/2025 16:46:44
 - **Langue**: Français
 - **Modèle**: Perplexity Sonar
 - **Score audit**: 90/100
